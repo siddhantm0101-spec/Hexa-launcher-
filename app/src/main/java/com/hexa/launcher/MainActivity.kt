@@ -1,20 +1,19 @@
-
 package com.hexa.launcher
 
 import android.app.Activity
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
-import android.content.IntentFilter
-import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
-import android.widget.*
 import android.provider.Settings
+import android.view.Gravity
+import android.view.View
+import android.view.MotionEvent
+import android.widget.*
 import android.text.TextWatcher
 import android.text.Editable
 import java.text.SimpleDateFormat
@@ -35,32 +34,34 @@ class MainActivity : Activity() {
 
     private var allApps: List<AppInfo> = emptyList()
     private lateinit var root: LinearLayout
-    private lateinit var wallpaperView: ImageView
     private lateinit var appList: LinearLayout
-
     private var page = "home"
-    private var touchX = 0f
-    private var touchY = 0f
+
+    private var startX = 0f
+    private var startY = 0f
 
     private val dark get() = pref.getBoolean("dark", true)
-    private val accent get() = pref.getInt("accent", 0xFF637DFF.toInt())
+    private val accent get() = pref.getInt("accent", 0xFF6685FF.toInt())
     private val columns get() = pref.getInt("columns", 4).coerceIn(3, 6)
     private val iconSize get() = pref.getInt("icon_size", 46).coerceIn(32, 64)
     private val showLabels get() = pref.getBoolean("labels", true)
-    private val use24Hour get() = pref.getBoolean("clock24", true)
-    private val wallpaperDim get() = pref.getInt("wallpaper_dim", 35).coerceIn(0, 85)
+    private val clock24 get() = pref.getBoolean("clock24", true)
+    private val wallpaperDim get() = pref.getInt("wallpaper_dim", 30).coerceIn(0, 85)
 
     private val bg get() =
-        if (dark) 0xFF080D18.toInt() else 0xFFF1F3F9.toInt()
+        if (dark) 0xFF05070D.toInt() else 0xFFF2F4FA.toInt()
 
     private val surface get() =
-        if (dark) 0xFF172235.toInt() else Color.WHITE
+        if (dark) 0xFF151E30.toInt() else Color.WHITE
+
+    private val surface2 get() =
+        if (dark) 0xFF1C2940.toInt() else 0xFFE8EDF7.toInt()
 
     private val fg get() =
         if (dark) Color.WHITE else 0xFF172033.toInt()
 
     private val muted get() =
-        if (dark) 0xFF9AA9C1.toInt() else 0xFF68748A.toInt()
+        if (dark) 0xFFA0ADC3.toInt() else 0xFF65728A.toInt()
 
     private val hidden get() =
         pref.getStringSet("hidden", emptySet()) ?: emptySet()
@@ -79,19 +80,19 @@ class MainActivity : Activity() {
             intent,
             PackageManager.MATCH_ALL
         ).mapNotNull {
-            val p = it.activityInfo.packageName
-            if (p == packageName) null
+            val pkg = it.activityInfo.packageName
+            if (pkg == packageName) null
             else AppInfo(
                 it.loadLabel(packageManager).toString(),
-                p,
+                pkg,
                 it.loadIcon(packageManager)
             )
         }.distinctBy { it.pkg }
             .sortedBy { it.title.lowercase(Locale.getDefault()) }
     }
 
-    private fun dp(n: Int): Int =
-        (n * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     private fun shape(
         color: Int,
@@ -103,7 +104,18 @@ class MainActivity : Activity() {
         if (stroke != null) setStroke(dp(1), stroke)
     }
 
-    private fun text(
+    private fun gradient(
+        colors: IntArray,
+        radius: Int
+    ) = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        colors
+    ).apply {
+        cornerRadius = dp(radius).toFloat()
+        setStroke(dp(1), 0x35FFFFFF)
+    }
+
+    private fun txt(
         value: String,
         size: Float,
         color: Int = fg,
@@ -133,97 +145,22 @@ class MainActivity : Activity() {
                 0
             }
 
-        val frame = FrameLayout(this)
-
-        wallpaperView = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-
-            val saved = pref.getString("wallpaper_uri", null)
-
-            if (saved != null) {
-                try {
-                    setImageURI(Uri.parse(saved))
-                } catch (_: Exception) {
-                    setBackgroundColor(bg)
-                }
-            } else {
-                setBackgroundColor(bg)
-            }
-        }
-
-        frame.addView(
-            wallpaperView,
-            FrameLayout.LayoutParams(-1, -1)
-        )
-
-        val overlay = View(this).apply {
-            val alpha = (wallpaperDim * 255 / 100)
-            setBackgroundColor(
-                Color.argb(alpha, 5, 10, 22)
+        root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                dp(20), dp(15), dp(20), dp(12)
             )
+            setBackgroundColor(bg)
         }
-
-        frame.addView(
-            overlay,
-            FrameLayout.LayoutParams(-1, -1)
-        )
 
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
+            addView(root)
         }
 
-        root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(
-                dp(22), dp(18), dp(22), dp(18)
-            )
-            setBackgroundColor(Color.TRANSPARENT)
-        }
-
-        scroll.addView(root)
-        frame.addView(
-            scroll,
-            FrameLayout.LayoutParams(-1, -1)
-        )
-
-        setContentView(frame)
-
-        root.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    touchX = event.x
-                    touchY = event.y
-                    false
-                }
-
-                MotionEvent.ACTION_UP -> {
-                    val dx = event.x - touchX
-                    val dy = event.y - touchY
-
-                    if (touchY > height() * 0.45f &&
-                        dy < -dp(65)
-                    ) {
-                        drawer()
-                    } else if (
-                        touchX > width() - dp(35) &&
-                        dx < -dp(45)
-                    ) {
-                        edgePanel()
-                    }
-                    false
-                }
-
-                else -> false
-            }
-        }
+        setContentView(scroll)
     }
-
-    private fun height() =
-        resources.displayMetrics.heightPixels.toFloat()
-
-    private fun width() =
-        resources.displayMetrics.widthPixels.toFloat()
 
     private fun header(
         title: String,
@@ -231,22 +168,48 @@ class MainActivity : Activity() {
         back: Boolean = false
     ) {
         if (back) {
-            val button = text("‹", 34f)
-            button.setOnClickListener { home() }
-            root.addView(button, LinearLayout.LayoutParams(-1, dp(42)))
-        }
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
 
-        root.addView(
-            text(title, 30f, fg, true),
-            LinearLayout.LayoutParams(-1, dp(43))
-        )
+            val backText = txt("‹", 34f, accent)
+            backText.gravity = Gravity.CENTER
+            backText.setOnClickListener { home() }
+
+            row.addView(backText, LinearLayout.LayoutParams(dp(42), dp(43)))
+            row.addView(
+                txt(title, 27f, fg, true),
+                LinearLayout.LayoutParams(0, dp(43), 1f)
+            )
+            root.addView(row)
+        } else {
+            root.addView(
+                txt(title, 29f, fg, true),
+                LinearLayout.LayoutParams(-1, dp(43))
+            )
+        }
 
         if (subtitle != null) {
             root.addView(
-                text(subtitle, 13f, muted),
+                txt(subtitle, 12f, muted),
                 LinearLayout.LayoutParams(-1, dp(25))
             )
         }
+    }
+
+    private fun section(title: String) {
+        root.addView(
+            txt(title.uppercase(Locale.getDefault()), 10f, muted, true),
+            LinearLayout.LayoutParams(-1, dp(35))
+        )
+    }
+
+    private fun spacer(height: Int) {
+        root.addView(
+            View(this),
+            LinearLayout.LayoutParams(1, dp(height))
+        )
     }
 
     private fun home() {
@@ -264,18 +227,22 @@ class MainActivity : Activity() {
         ).format(Date())
 
         top.addView(
-            text(date, 14f, muted),
-            LinearLayout.LayoutParams(0, dp(35), 1f)
+            txt(date, 14f, muted),
+            LinearLayout.LayoutParams(0, dp(42), 1f)
         )
 
-        val gear = text("⚙", 25f)
-        gear.gravity = Gravity.CENTER
-        gear.setOnClickListener { settings() }
-        top.addView(gear, LinearLayout.LayoutParams(dp(42), dp(42)))
+        val settingsButton = txt("⚙", 25f, fg)
+        settingsButton.gravity = Gravity.CENTER
+        settingsButton.setOnClickListener { settings() }
+
+        top.addView(
+            settingsButton,
+            LinearLayout.LayoutParams(dp(45), dp(42))
+        )
 
         root.addView(top)
 
-        val clockPattern = if (use24Hour) "HH:mm" else "hh:mm a"
+        val clockPattern = if (clock24) "HH:mm" else "hh:mm"
 
         val clock = SimpleDateFormat(
             clockPattern,
@@ -283,8 +250,8 @@ class MainActivity : Activity() {
         ).format(Date())
 
         root.addView(
-            text(clock, 58f, fg, true),
-            LinearLayout.LayoutParams(-1, dp(77))
+            txt(clock, 59f, fg, true),
+            LinearLayout.LayoutParams(-1, dp(79))
         )
 
         val hour = SimpleDateFormat(
@@ -296,101 +263,109 @@ class MainActivity : Activity() {
             in 5..11 -> "Good morning"
             in 12..16 -> "Good afternoon"
             in 17..20 -> "Good evening"
-            else -> "Welcome to HEXA"
+            else -> "Welcome back"
         }
 
-        root.addView(text("$greeting. Make room for what matters.", 14f, muted))
+        root.addView(
+            txt("$greeting. Make room for what matters.", 14f, muted)
+        )
 
-        val battery = registerReceiver(
+        val batteryIntent = registerReceiver(
             null,
             IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         )
 
-        val level = battery?.getIntExtra("level", -1) ?: -1
-        val batteryText =
-            if (level >= 0) "Battery  $level%" else "Your personal space"
+        val battery = batteryIntent?.getIntExtra("level", -1) ?: -1
+        val batteryStatus = if (battery >= 0) "$battery%" else "--"
 
-        root.addView(
-            text("◉   $batteryText", 12f, muted),
-            LinearLayout.LayoutParams(-1, dp(32))
+        val batteryCard = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(13), 0, dp(13), 0)
+            background = shape(surface, 15)
+        }
+
+        batteryCard.addView(txt("◉", 17f, accent))
+        batteryCard.addView(
+            txt("  Battery  $batteryStatus", 12f, muted)
         )
 
-        val gap = View(this)
-        root.addView(gap, LinearLayout.LayoutParams(1, dp(16)))
+        root.addView(
+            batteryCard,
+            LinearLayout.LayoutParams(-1, dp(37)).apply {
+                topMargin = dp(12)
+            }
+        )
+
+        spacer(20)
 
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(21), dp(18), dp(21), dp(18))
-            background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
+            setPadding(dp(21), dp(19), dp(21), dp(18))
+            background = gradient(
                 intArrayOf(
                     accent,
-                    0xFF283D72.toInt(),
-                    0xFF111B31.toInt()
-                )
-            ).apply {
-                cornerRadius = dp(29).toFloat()
-                setStroke(dp(1), 0x55FFFFFF)
-            }
-            elevation = dp(7).toFloat()
+                    0xFF253E71.toInt(),
+                    0xFF111A30.toInt()
+                ),
+                29
+            )
+            elevation = dp(5).toFloat()
         }
 
         hero.addView(
-            text("H E X A   /   SPACE", 12f, Color.WHITE, true)
+            txt("H E X A     /     SPACE", 11f, 0xFFE4EBFF.toInt(), true)
         )
 
         hero.addView(
-            text(
+            txt(
                 "Your phone,\nyour world.",
-                27f,
+                28f,
                 Color.WHITE,
                 true
             ),
-            LinearLayout.LayoutParams(-1, dp(82))
+            LinearLayout.LayoutParams(-1, dp(83))
         )
 
         hero.addView(
-            text(
-                "A smarter and calmer Android experience.",
+            txt(
+                "A smarter, calmer Android experience.",
                 12f,
-                0xFFE2E8FF.toInt()
+                0xFFE1E8FF.toInt()
             )
         )
 
         root.addView(
             hero,
-            LinearLayout.LayoutParams(-1, dp(160))
+            LinearLayout.LayoutParams(-1, dp(158))
         )
 
-        val quick = LinearLayout(this).apply {
+        spacer(13)
+
+        val shortcuts = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
 
-        quick.addView(
-            chip("▧", "Wallpaper") { wallpaper() },
-            LinearLayout.LayoutParams(0, dp(70), 1f)
+        shortcuts.addView(
+            shortcut("▧", "Wallpaper") { wallpaper() },
+            LinearLayout.LayoutParams(0, dp(75), 1f)
         )
 
-        quick.addView(
-            chip("⌕", "All apps") { drawer() },
-            LinearLayout.LayoutParams(0, dp(70), 1f).apply {
+        shortcuts.addView(
+            shortcut("⌕", "All apps") { drawer() },
+            LinearLayout.LayoutParams(0, dp(75), 1f).apply {
                 leftMargin = dp(8)
             }
         )
 
-        quick.addView(
-            chip("◈", "Edge panel") { edgePanel() },
-            LinearLayout.LayoutParams(0, dp(70), 1f).apply {
+        shortcuts.addView(
+            shortcut("◈", "Edge panel") { edgePanel() },
+            LinearLayout.LayoutParams(0, dp(75), 1f).apply {
                 leftMargin = dp(8)
             }
         )
 
-        root.addView(
-            quick,
-            LinearLayout.LayoutParams(-1, dp(78)).apply {
-                topMargin = dp(13)
-            }
-        )
+        root.addView(shortcuts)
 
         val search = EditText(this).apply {
             hint = "⌕   Search installed apps"
@@ -399,34 +374,34 @@ class MainActivity : Activity() {
             textSize = 15f
             setSingleLine(true)
             isFocusable = false
-            setPadding(dp(18), 0, dp(18), 0)
-            background = shape(surface, 25, 0x334F65A0)
+            setPadding(dp(17), 0, dp(17), 0)
+            background = shape(surface, 24, 0x334F65A0)
 
             setOnClickListener { drawer() }
         }
 
         root.addView(
             search,
-            LinearLayout.LayoutParams(-1, dp(53)).apply {
-                topMargin = dp(12)
+            LinearLayout.LayoutParams(-1, dp(54)).apply {
+                topMargin = dp(14)
             }
         )
 
-        val favHeader = LinearLayout(this).apply {
+        val favTitle = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        favHeader.addView(
-            text("FAVOURITES", 11f, muted, true),
+        favTitle.addView(
+            txt("FAVOURITES", 10f, muted, true),
             LinearLayout.LayoutParams(0, dp(38), 1f)
         )
 
-        val edit = text("EDIT", 10f, accent, true)
+        val edit = txt("EDIT", 10f, accent, true)
         edit.setOnClickListener { manageFavourites() }
-        favHeader.addView(edit)
+        favTitle.addView(edit)
 
-        root.addView(favHeader)
+        root.addView(favTitle)
 
         val dock = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -435,20 +410,20 @@ class MainActivity : Activity() {
             background = shape(surface, 26, 0x224F65A0)
         }
 
-        favourites().take(6).forEach {
+        favourites().take(5).forEach {
             dock.addView(
                 iconTile(it),
-                LinearLayout.LayoutParams(0, dp(83), 1f)
+                LinearLayout.LayoutParams(0, dp(82), 1f)
             )
         }
 
         root.addView(
             dock,
-            LinearLayout.LayoutParams(-1, dp(90))
+            LinearLayout.LayoutParams(-1, dp(88))
         )
 
-        val footer = text(
-            "SWIPE UP FOR APPS     •     HEXA 2.2",
+        val footer = txt(
+            "SWIPE UP FOR APPS     •     HEXA 3.0",
             10f,
             muted
         )
@@ -456,11 +431,39 @@ class MainActivity : Activity() {
 
         root.addView(
             footer,
-            LinearLayout.LayoutParams(-1, dp(34))
+            LinearLayout.LayoutParams(-1, dp(35))
         )
+
+        root.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.x
+                    startY = event.y
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.x - startX
+                    val dy = event.y - startY
+
+                    if (startY > dp(100) && dy < -dp(65)) {
+                        drawer()
+                    } else if (
+                        startX > resources.displayMetrics.widthPixels * 0.75f &&
+                        dx < -dp(50)
+                    ) {
+                        edgePanel()
+                    }
+
+                    true
+                }
+
+                else -> true
+            }
+        }
     }
 
-    private fun chip(
+    private fun shortcut(
         symbol: String,
         name: String,
         action: () -> Unit
@@ -470,13 +473,13 @@ class MainActivity : Activity() {
         background = shape(surface, 19)
 
         addView(
-            text(symbol, 22f, accent, true).apply {
+            txt(symbol, 22f, accent, true).apply {
                 gravity = Gravity.CENTER
             }
         )
 
         addView(
-            text(name, 11f, fg, true).apply {
+            txt(name, 11f, fg, true).apply {
                 gravity = Gravity.CENTER
             }
         )
@@ -488,22 +491,22 @@ class MainActivity : Activity() {
         val saved = pref.getStringSet("fav", null)
 
         if (saved != null) {
-            val list = saved.mapNotNull { p ->
-                allApps.firstOrNull { it.pkg == p }
+            val list = saved.mapNotNull { pkg ->
+                allApps.firstOrNull { it.pkg == pkg }
             }
             if (list.isNotEmpty()) return list
         }
 
-        val keys = listOf(
+        val preferred = listOf(
             "phone", "message", "chrome",
             "camera", "whatsapp"
         )
 
-        return keys.mapNotNull { key ->
+        return preferred.mapNotNull { key ->
             allApps.firstOrNull {
                 it.title.contains(key, true)
             }
-        }.distinctBy { it.pkg }.take(6)
+        }.distinctBy { it.pkg }.take(5)
     }
 
     private fun iconTile(app: AppInfo) =
@@ -511,13 +514,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
 
-            val icon = ImageView(this@MainActivity).apply {
+            val image = ImageView(this@MainActivity).apply {
                 setImageDrawable(app.icon)
                 scaleType = ImageView.ScaleType.FIT_CENTER
             }
 
             addView(
-                icon,
+                image,
                 LinearLayout.LayoutParams(
                     dp(iconSize),
                     dp(iconSize)
@@ -526,11 +529,11 @@ class MainActivity : Activity() {
 
             if (showLabels) {
                 addView(
-                    text(app.title, 9f, fg).apply {
+                    txt(app.title, 9f, fg).apply {
                         gravity = Gravity.CENTER
                         maxLines = 1
                     },
-                    LinearLayout.LayoutParams(-1, dp(22))
+                    LinearLayout.LayoutParams(-1, dp(20))
                 )
             }
 
@@ -544,28 +547,28 @@ class MainActivity : Activity() {
     private fun drawer() {
         page = "drawer"
         base()
-        header("All apps", "Everything in one place")
+
+        header("Apps", "Your complete app library", true)
 
         val input = EditText(this).apply {
-            hint = "Search apps"
+            hint = "⌕   Search installed apps"
             setHintTextColor(muted)
             setTextColor(fg)
             setSingleLine(true)
             textSize = 15f
-            setPadding(dp(15), 0, dp(15), 0)
+            setPadding(dp(16), 0, dp(16), 0)
             background = shape(surface, 22)
         }
 
         root.addView(
             input,
-            LinearLayout.LayoutParams(-1, dp(50)).apply {
+            LinearLayout.LayoutParams(-1, dp(51)).apply {
                 topMargin = dp(12)
                 bottomMargin = dp(12)
             }
         )
 
         val scroll = ScrollView(this)
-
         appList = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -597,12 +600,9 @@ class MainActivity : Activity() {
     private fun renderApps(query: String) {
         appList.removeAllViews()
 
-        val found = allApps
-            .filter {
-                it.pkg !in hidden &&
-                    it.title.contains(query, true)
-            }
-            .sortedBy { it.title.lowercase(Locale.getDefault()) }
+        val found = allApps.filter {
+            it.pkg !in hidden && it.title.contains(query, true)
+        }
 
         found.chunked(columns).forEach { group ->
             val row = LinearLayout(this).apply {
@@ -612,14 +612,14 @@ class MainActivity : Activity() {
             group.forEach {
                 row.addView(
                     iconTile(it),
-                    LinearLayout.LayoutParams(0, dp(100), 1f)
+                    LinearLayout.LayoutParams(0, dp(99), 1f)
                 )
             }
 
             repeat(columns - group.size) {
                 row.addView(
                     View(this),
-                    LinearLayout.LayoutParams(0, dp(100), 1f)
+                    LinearLayout.LayoutParams(0, dp(99), 1f)
                 )
             }
 
@@ -628,7 +628,7 @@ class MainActivity : Activity() {
 
         if (found.isEmpty()) {
             appList.addView(
-                text("No apps found", 14f, muted)
+                txt("No apps found", 14f, muted)
             )
         }
     }
@@ -654,7 +654,9 @@ class MainActivity : Activity() {
                         set.add(app.pkg)
                         pref.edit().putStringSet("fav", set).apply()
                         Toast.makeText(
-                            this, "Favourite added", Toast.LENGTH_SHORT
+                            this,
+                            "Favourite added",
+                            Toast.LENGTH_SHORT
                         ).show()
                     }
 
@@ -680,54 +682,62 @@ class MainActivity : Activity() {
                         startActivity(intent)
                     }
                 }
-            }.show()
+            }
+            .show()
     }
 
     private fun settings() {
         page = "settings"
         base()
-        header("Settings", "Personalize your HEXA", true)
 
-        setting("Appearance", "Switch between AMOLED dark and light") {
+        header("Settings", "Make HEXA yours", true)
+
+        section("Appearance")
+
+        setting("AMOLED / Light mode", "Switch between dark and light") {
             pref.edit().putBoolean("dark", !dark).apply()
             settings()
         }
 
-        setting("Accent colour", "Choose from six HEXA colours") {
+        setting("Accent colour", "Blue, violet, mint, rose, cyan or amber") {
             chooseAccent()
         }
+
+        setting("Wallpaper", "Choose a photo from your Gallery") {
+            wallpaper()
+        }
+
+        setting("Wallpaper darkness", "Control wallpaper visibility") {
+            chooseWallpaperDim()
+        }
+
+        section("Home screen")
 
         setting("App grid", "Choose 3, 4, 5 or 6 columns") {
             chooseGrid()
         }
 
-        setting("Icon size", "Change app icon size") {
+        setting("Icon size", "Small, normal, large or extra large") {
             chooseIconSize()
         }
 
-        setting("App labels", "Show or hide app names") {
+        setting("App labels", "Show or hide application names") {
             pref.edit().putBoolean("labels", !showLabels).apply()
             settings()
         }
 
         setting("Clock format", "Switch between 12 and 24 hour") {
-            pref.edit().putBoolean("clock24", !use24Hour).apply()
+            pref.edit().putBoolean("clock24", !clock24).apply()
             settings()
         }
 
-        setting("Wallpaper", "Choose your own Gallery image") {
-            wallpaper()
-        }
+        section("Apps and shortcuts")
 
-        setting("Wallpaper darkness", "Adjust wallpaper visibility") {
-            chooseWallpaperDim()
-        }
-
-        setting("Favourite apps", "Manage home screen shortcuts") {
+        setting("Favourite apps", "Manage your home screen dock") {
             manageFavourites()
         }
 
-        setting("Hidden apps", "Show or restore hidden apps") {
+        setting("Hidden apps", "Restore apps hidden from the drawer") {
             manageHidden()
         }
 
@@ -735,19 +745,21 @@ class MainActivity : Activity() {
             edgePanel()
         }
 
-        setting("Android Quick Settings", "Open Android settings") {
+        section("Android settings")
+
+        setting("Quick settings", "Open Android system settings") {
             openSystem(Settings.ACTION_SETTINGS)
         }
 
-        setting("Display settings", "Brightness and display options") {
+        setting("Display", "Brightness and display options") {
             openSystem(Settings.ACTION_DISPLAY_SETTINGS)
         }
 
-        setting("Sound settings", "Ringtone and volume options") {
+        setting("Sound", "Volume and ringtone settings") {
             openSystem(Settings.ACTION_SOUND_SETTINGS)
         }
 
-        setting("Battery settings", "Battery usage and power options") {
+        setting("Battery", "Battery and power settings") {
             openSystem(Intent.ACTION_POWER_USAGE_SUMMARY)
         }
 
@@ -755,28 +767,33 @@ class MainActivity : Activity() {
             openSystem(Settings.ACTION_HOME_SETTINGS)
         }
 
-        setting("Reset wallpaper", "Remove your selected wallpaper") {
+        section("System")
+
+        setting("Reset wallpaper", "Remove your selected Gallery image") {
             pref.edit().remove("wallpaper_uri").apply()
             home()
         }
 
-        setting("Reset HEXA", "Restore default HEXA preferences") {
+        setting("Reset HEXA", "Restore default launcher settings") {
             android.app.AlertDialog.Builder(this)
-                .setMessage("Reset all HEXA preferences?")
+                .setTitle("Reset HEXA?")
+                .setMessage("All custom launcher preferences will be reset.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Reset") { _, _ ->
                     pref.edit().clear().apply()
                     home()
-                }.show()
+                }
+                .show()
         }
 
-        setting("About HEXA", "HEXA Launcher 2.2") {
+        setting("About HEXA", "HEXA Launcher 3.0 • Hybrid Edition") {
             android.app.AlertDialog.Builder(this)
-                .setTitle("HEXA 2.2")
+                .setTitle("HEXA 3.0")
                 .setMessage(
-                    "HEXA Launcher\nVersion 2.2\n\n" +
-                    "A customizable Android home screen.\n" +
-                    "Made for a cleaner Android experience."
+                    "HEXA Launcher\n" +
+                    "Version 3.0 Hybrid\n\n" +
+                    "One UI-inspired usability with HEXA identity.\n\n" +
+                    "A third-party Android launcher."
                 )
                 .setPositiveButton("OK", null)
                 .show()
@@ -791,18 +808,18 @@ class MainActivity : Activity() {
         val item = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(10), dp(16), dp(10))
-            background = shape(surface, 18)
+            background = shape(surface, 18, 0x183F5A90)
 
-            addView(text(title, 15f, fg, true))
-            addView(text(description, 11f, muted))
+            addView(txt(title, 14f, fg, true))
+            addView(txt(description, 11f, muted))
 
             setOnClickListener { action() }
         }
 
         root.addView(
             item,
-            LinearLayout.LayoutParams(-1, dp(67)).apply {
-                topMargin = dp(9)
+            LinearLayout.LayoutParams(-1, dp(66)).apply {
+                topMargin = dp(8)
             }
         )
     }
@@ -818,7 +835,7 @@ class MainActivity : Activity() {
         )
 
         val colors = intArrayOf(
-            0xFF637DFF.toInt(),
+            0xFF6685FF.toInt(),
             0xFF9B75E8.toInt(),
             0xFF35B99A.toInt(),
             0xFFE87598.toInt(),
@@ -827,11 +844,12 @@ class MainActivity : Activity() {
         )
 
         android.app.AlertDialog.Builder(this)
-            .setTitle("Choose accent")
+            .setTitle("Choose accent colour")
             .setItems(names) { _, index ->
                 pref.edit().putInt("accent", colors[index]).apply()
                 settings()
-            }.show()
+            }
+            .show()
     }
 
     private fun chooseGrid() {
@@ -847,7 +865,8 @@ class MainActivity : Activity() {
             .setItems(options) { _, index ->
                 pref.edit().putInt("columns", index + 3).apply()
                 settings()
-            }.show()
+            }
+            .show()
     }
 
     private fun chooseIconSize() {
@@ -858,14 +877,15 @@ class MainActivity : Activity() {
             "Extra large"
         )
 
-        val sizes = intArrayOf(36, 44, 52, 60)
+        val values = intArrayOf(36, 44, 52, 60)
 
         android.app.AlertDialog.Builder(this)
             .setTitle("Icon size")
             .setItems(options) { _, index ->
-                pref.edit().putInt("icon_size", sizes[index]).apply()
+                pref.edit().putInt("icon_size", values[index]).apply()
                 settings()
-            }.show()
+            }
+            .show()
     }
 
     private fun chooseWallpaperDim() {
@@ -879,13 +899,14 @@ class MainActivity : Activity() {
         val values = intArrayOf(0, 20, 40, 65)
 
         android.app.AlertDialog.Builder(this)
-            .setTitle("Wallpaper visibility")
+            .setTitle("Wallpaper darkness")
             .setItems(options) { _, index ->
                 pref.edit()
                     .putInt("wallpaper_dim", values[index])
                     .apply()
                 home()
-            }.show()
+            }
+            .show()
     }
 
     private fun manageHidden() {
@@ -893,7 +914,9 @@ class MainActivity : Activity() {
 
         if (apps.isEmpty()) {
             Toast.makeText(
-                this, "No hidden apps", Toast.LENGTH_SHORT
+                this,
+                "No hidden apps",
+                Toast.LENGTH_SHORT
             ).show()
             return
         }
@@ -911,11 +934,15 @@ class MainActivity : Activity() {
     }
 
     private fun manageFavourites() {
-        val apps = allApps.filter { it.pkg in favourites().map { a -> a.pkg } }
+        val apps = allApps.filter {
+            it.pkg in favourites().map { app -> app.pkg }
+        }
 
         if (apps.isEmpty()) {
             Toast.makeText(
-                this, "No favourite apps", Toast.LENGTH_SHORT
+                this,
+                "No favourite apps",
+                Toast.LENGTH_SHORT
             ).show()
             return
         }
@@ -935,13 +962,18 @@ class MainActivity : Activity() {
     private fun edgePanel() {
         page = "edge"
         base()
-        header("HEXA Edge", "Your quick access panel", true)
+
+        header("HEXA Edge", "Quick access at your fingertips", true)
+
+        section("Favourites")
 
         favourites().forEach { app ->
             setting(app.title, "Open application") {
                 launch(app)
             }
         }
+
+        section("Shortcuts")
 
         setting("All apps", "Open app drawer") {
             drawer()
@@ -951,13 +983,17 @@ class MainActivity : Activity() {
             settings()
         }
 
-        setting("Android Settings", "Open system settings") {
+        setting("Android settings", "Open system settings") {
             openSystem(Settings.ACTION_SETTINGS)
+        }
+
+        setting("Wallpaper", "Change your home wallpaper") {
+            wallpaper()
         }
     }
 
     private fun wallpaper() {
-        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "image/*"
             addFlags(
@@ -967,7 +1003,7 @@ class MainActivity : Activity() {
         }
 
         try {
-            startActivityForResult(pick, 4102)
+            startActivityForResult(intent, 3001)
         } catch (_: Exception) {
             Toast.makeText(
                 this,
@@ -985,7 +1021,7 @@ class MainActivity : Activity() {
     ) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode == 4102 && resultCode == RESULT_OK) {
+        if (requestCode == 3001 && resultCode == RESULT_OK) {
             val uri = data?.data ?: return
 
             try {
@@ -1003,7 +1039,7 @@ class MainActivity : Activity() {
 
             Toast.makeText(
                 this,
-                "Wallpaper updated",
+                "Wallpaper saved",
                 Toast.LENGTH_SHORT
             ).show()
         }
