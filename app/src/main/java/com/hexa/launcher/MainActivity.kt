@@ -137,7 +137,7 @@ class MainActivity:Activity(){
     }
     private fun drawer(){
         page="drawer";base();header("Apps","Find anything on your phone")
-        val input=EditText(this).apply{hint="Search installed apps";setHintTextColor(muted);setTextColor(fg);singleLine=true;setPadding(dp(15),0,dp(15),0);background=shape(surface,22)}
+        val input=EditText(this).apply{hint="Search installed apps";setHintTextColor(muted);setTextColor(fg);setSingleLine(true);setPadding(dp(15),0,dp(15),0);background=shape(surface,22)}
         root.addView(input,LinearLayout.LayoutParams(-1,dp(49)).apply{topMargin=dp(12);bottomMargin=dp(10)})
         val scroll=ScrollView(this);listBox=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};scroll.addView(listBox)
         root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
